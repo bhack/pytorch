@@ -634,16 +634,49 @@ def has_incompatible_cudagraph_ops(gm):
     return False
 
 
+# Attempt to import AttrsDescriptor from triton
 try:
-    from triton.compiler.compiler import AttrsDescriptor as instance_descriptor
+    from triton.compiler.compiler import AttrsDescriptor
+
+    attrs_descriptor_available = True
 except ImportError:
-    # To support older version of triton which does not have AttrsDescriptor
-    # class
-    instance_descriptor = collections.namedtuple(  # type: ignore[no-redef]
-        "instance_descriptor",
-        ["divisible_by_16", "equal_to_1", "ids_of_folded_args", "divisible_by_8"],
-        defaults=[tuple(), tuple(), tuple(), tuple()],
-    )
+    attrs_descriptor_available = False
+
+# Determine the number of parameters expected by AttrsDescriptor dynamically,
+# or define the fallback namedtuple accordingly
+if attrs_descriptor_available:
+    params = inspect.signature(AttrsDescriptor).parameters
+    needs_ids_of_folded_args = "ids_of_folded_args" in params
+else:
+    needs_ids_of_folded_args = True
+
+# Define the fallback namedtuple
+if needs_ids_of_folded_args:
+    fields = ["divisible_by_16", "equal_to_1", "ids_of_folded_args", "divisible_by_8"]
+else:
+    fields = ["divisible_by_16", "equal_to_1", "divisible_by_8"]
+
+InstanceDescriptorFallback = collections.namedtuple(
+    "InstanceDescriptorFallback", fields, defaults=(tuple(),) * len(fields)
+)
+
+
+def create_instance_descriptor(
+    divisible_by_16, equal_to_1, ids_of_folded_args, divisible_by_8
+):
+    if attrs_descriptor_available:
+        if needs_ids_of_folded_args:
+            # If AttrsDescriptor accepts 'ids_of_folded_args'
+            return AttrsDescriptor(
+                divisible_by_16, equal_to_1, ids_of_folded_args, divisible_by_8
+            )
+        else:
+            # If AttrsDescriptor does not accept 'ids_of_folded_args', omit it
+            return AttrsDescriptor(divisible_by_16, equal_to_1, divisible_by_8)
+    else:
+        return InstanceDescriptorFallback(
+            divisible_by_16, equal_to_1, ids_of_folded_args, divisible_by_8
+        )
 
 
 @functools.lru_cache(None)
